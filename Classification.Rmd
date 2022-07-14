@@ -1,0 +1,288 @@
+---
+title: "Classification of Heart Disease"
+author: "Youssef Donia"
+date: "3/27/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document is for the classification section of the R project in CS 4375. I will be doing the classification based on the heart disease dataset below.
+
+The dataset was found through this link: https://www.kaggle.com/datasets/kamilpytlak/personal-key-indicators-of-heart-disease
+
+# Reading from the Data Set
+Let's read from the data set and output the first few rows
+
+```{r}
+df <- read.csv("heart_2020.csv")
+head(df)
+```
+# Data Cleaning
+The "HeartDisease" column is heavily unbalanced, so to fix this I can downsample the "Yes" class in HeartDisease to balance.
+
+```{r} 
+
+# output list structure for the dataset
+str(df)
+
+# data cleaning
+df <- na.omit(df)
+table(df$HeartDisease)
+
+# down sampling the "No" class in the Heart Disease column to balance the data set
+yes <- which(df$HeartDisease == "Yes")
+no <- which(df$HeartDisease == "No")
+
+length(yes) # this should be about 27373
+length(no) # this should be about 292422
+
+no_downsample <- sample(no, length(yes)) # down sampling the No to have the same length as Yes
+df <- df[c(no_downsample, yes),] # create a new data frame with the changed column
+
+str(df) # the length now should be much smaller, and the number of No's and Yes' should be the same
+yes <- which(df$HeartDisease == "Yes")
+no <- which(df$HeartDisease == "No")
+length(yes) # should be 27373
+length(no) # should be 27373
+```
+
+Now we're going to want to clean the rest of the data frame. To do this, let's remove some columns that we will not need and make columns that have limited outputs into factors.Some columns must also be removed, as they are still unbalanced and could give the model a false accuracy.
+
+```{r}
+# convert variables into factors, delete variables that are too unbalanced
+df$AlcoholDrinking <- NULL
+df$Stroke <- NULL
+df$Race <- NULL
+df$Asthma <- NULL
+df$KidneyDisease <- NULL
+df$SkinCancer <- NULL
+df$MentalHealth <- NULL
+
+# for the KNN algorithm, switch columns to numeric/ factor depending on qualities
+df$Smoking[df$Smoking == "Yes"] <- TRUE
+df$Smoking[df$Smoking == "No"] <- FALSE
+df$Smoking <- as.factor(df$Smoking) # seems good
+
+df$DiffWalking[df$DiffWalking == "Yes"] <- TRUE
+df$DiffWalking[df$DiffWalking == "No"] <- FALSE
+df$DiffWalking <- as.factor(df$DiffWalking)
+
+df$PhysicalActivity[df$PhysicalActivity == "Yes"] <- TRUE
+df$PhysicalActivity[df$PhysicalActivity == "No"] <- FALSE
+df$PhysicalActivity <- as.factor(df$PhysicalActivity)
+
+df$Sex[df$Sex == "Male"] <- 0
+df$Sex[df$Sex == "Female"] <- 1
+df$Sex <- as.factor(df$Sex) # seems good
+
+df$Diabetic[df$Diabetic == "Yes"] <- TRUE
+df$Diabetic[df$Diabetic == "No"] <- FALSE
+df$Diabetic[df$Diabetic == "Yes (during pregnancy)"] <- FALSE
+df$Diabetic[df$Diabetic == "No, borderline diabetes"] <- TRUE
+df$Diabetic <- as.factor(df$Diabetic)
+
+df$GenHealth[df$GenHealth == "Poor"] <- 0
+df$GenHealth[df$GenHealth == "Fair"] <- 1
+df$GenHealth[df$GenHealth == "Good"] <- 2
+df$GenHealth[df$GenHealth == "Very good"] <- 3
+df$GenHealth[df$GenHealth == "Excellent"] <- 4
+df$GenHealth <- as.factor(df$GenHealth)
+df$GenHealth <- as.factor(df$GenHealth)
+
+df$AgeCategory[df$AgeCategory == "18-24"] <- 0
+df$AgeCategory[df$AgeCategory == "25-29"] <- 1
+df$AgeCategory[df$AgeCategory == "30-34"] <- 2
+df$AgeCategory[df$AgeCategory == "35-39"] <- 3
+df$AgeCategory[df$AgeCategory == "40-44"] <- 4
+df$AgeCategory[df$AgeCategory == "45-49"] <- 5
+df$AgeCategory[df$AgeCategory == "50-54"] <- 6
+df$AgeCategory[df$AgeCategory == "55-59"] <- 7
+df$AgeCategory[df$AgeCategory == "60=64"] <- 8
+df$AgeCategory[df$AgeCategory == "65-69"] <- 9
+df$AgeCategory[df$AgeCategory == "70-74"] <- 10
+df$AgeCategory[df$AgeCategory == "75-79"] <- 11
+df$AgeCategory[df$AgeCategory == "80 or older"] <- 12
+df$AgeCategory <- as.factor(df$AgeCategory)
+
+
+# rename the "physical health" variable to "injury rate" as that seems more accurate
+colnames(df)[which(names(df) == "PhysicalHealth")] <- "InjuryRate"
+
+names(df) # check to see the updated columns
+```
+
+# Data Visualization
+After the data is cleaned, we are going to use R functions to visualize our data to help us understand the data we are working with better, and find good predictors for our Heart Disease variable.
+
+First, let's print out a couple summaries for our data frame to check that everything is the way we want it.
+
+```{r}
+summary(df)
+str(df)
+```
+
+We can see that the rows we edited are now factors and the unbalanced variables have been deleted, so everything seems to be working well.
+
+Let's plot some of our variables with the Heart Disease variable to get a good view of whether they would be good predictor variables or not. I wil start with the relationship between Heart Disease vs. BMI and Heart Disease vs. Injury Rate. 
+```{r, warning=FALSE}
+
+# must change the Heart Disease column first from string to TRUE or FALSE to be numeric
+df$HeartDisease[df$HeartDisease == "Yes"] <- TRUE
+df$HeartDisease[df$HeartDisease == "No"] <- FALSE
+df$HeartDisease <- as.factor(df$HeartDisease)
+
+# plot
+par(mfrow=c(1,2))
+plot(df$HeartDisease,df$BMI, main="BMI", ylab="", varwidth=TRUE)
+plot(df$HeartDisease,df$InjuryRate, main="Injury Rate", ylab="", varwidth=TRUE)
+
+```
+Looking at these graphs, BMI and Injury Rate do not seem like good predictors, as the data is not very diverse. We can tell because in each graph, the medians are very close together. This means that we should not use these variables alone as predictors as they will not be very helpful. 
+
+# Models
+Let's create some models using three different algorithms to predict our response variable, which is Heart Disease. I will be using the Logistic Regression, Naive Bayes, and KNN algorithms to perform classification on the data.
+
+## Train and Test
+First, we need to divide the train and test data.
+
+```{r}
+set.seed(1234)
+
+i <- sample(1:nrow(df), nrow(df)*0.75, replace=FALSE)
+train <- df[i,]
+test <- df[-i,]
+nrow(train) # size of train data
+nrow(test) # size of test data
+```
+
+## Logistic Regression
+Let's start with a Logistic Regression Model. With this model, we will predict Heart Disease from all the other predictors. I am starting with this to see how well the model performs, and from there I can decide if there is any way to improve the accuracy.
+
+```{r}
+glm1 <- glm(HeartDisease~., data=train, family=binomial)
+summary(glm1)
+```
+
+This model seems a little bit too cluttered, so let's try to make another mode with less predictors. Let's use smoking, BMI, Injury Rate, Diabetic, and GenHealth as predictors. I ommited the others because they were either too vague or in general are not associated as highly with heart disease. 
+
+```{r}
+glm2 <- glm(HeartDisease~Smoking+BMI+InjuryRate+Diabetic+GenHealth,data=train, family="binomial")
+summary(glm2)
+```
+
+This model turned out to be worse than the first, so we will try again. Removing any more predictors than this will make the model fit worse, so we will remove only very selective predictors from the original model now, and see if we can improve it any more. The AgeCategory and the Physical activity coefficients were pretty low in some cases, and had high std. errors, so we will remove those.
+
+```{r}
+glm3 <- glm(HeartDisease~.-AgeCategory-PhysicalActivity, data=train, family="binomial")
+summary(glm3)
+```
+
+While this model is better than the one before it, it seems to still not be as good as the first, so we will use the first one. 
+
+Now, let's predict the probabilites, make binary predictions, and test the accuracy of the model.
+
+```{r}
+# predict probabilities
+glmprobs <- predict(glm1, newdata=test, type="response")
+
+# make binary predictions 
+glmpred <- rep(TRUE, nrow(test))
+glmpred[glmprobs<0.5] <- FALSE # if probability is less than 0.5, then we will predict that they do not have heart disease
+
+```
+
+Now, let's test the accuracy of the model.
+
+```{r}
+# accuracy of the model
+glmacc <- mean(glmpred == test$HeartDisease)
+print(glmacc)
+table(Predicted = glmpred, Actual = test$HeartDisease)
+```
+
+As we can see from the output for this code, the accuracy was about 76%. This is a moderately accurate model, but a good model for this type of prediction should probably have a higher accuracy. The diagonals in the table are where the predictions were correct. The model predicted that a person didn't have heart disease correctly 5116 times, and predicted that they did correctly 5288 times. It predicted a person didn't have heart disease wrongly 1531 times, and that they did wrongly 1752 times.
+
+## Naive Bayes
+Let's use the Naive Bayes algorithm on this same dataset to see if we get better results that way.
+
+```{r}
+library(e1071)
+nb1 <- naiveBayes(HeartDisease~., data=train) # use all predictors as that worked best with logistic regression as well
+nb1
+```
+
+Let's evaluate this model on the test data.
+
+```{r}
+# predict off the test data
+nb.pred <- predict(nb1, newdata=test, type="class") 
+
+# evaluate model
+table(nb.pred, test$HeartDisease) 
+nb.acc <- mean(nb.pred == test$HeartDisease)
+print(paste("Accuracy: ", nb.acc))
+```
+
+As we can see, the Naive Bayes model was slightly less accurate than the Logistic Regression model, with an accuracy of about 72%. It predicted more accurate FALSE's, but less accurate TRUE's. 
+
+Let's try one more algorithm to see if we can make a more accurate model than the one we had for logistic regression. For this model, I will use the KNN algorithm. Let's create a model that will hopefully surpass the other two in accuracy. 
+
+## KNN
+
+First, let's clean the data so that it is suitable for the KNN algorithm
+```{r}
+library(class)
+
+# convert all columns to numeric
+for (i in 1:ncol(df)){
+    if(!is.numeric(df[1,i])) {
+      df[,i] <- as.integer(df[,i])
+    }
+}
+
+predictors <- c("BMI", "Smoking", "InjuryRate", "DiffWalking", "Sex", "AgeCategory", "Diabetic", "PhysicalActivity", "GenHealth", "SleepTime")
+
+# run normalization on the dataset to improve the performance of knn
+normalize <- function(x) { (x - min(x))/(max(x) - min(x))}
+
+df_normalized <- as.data.frame(lapply(df[,predictors], normalize))
+summary(df_normalized)
+
+```
+
+Let's divide into train and test once again for KNN specifically
+```{r}
+set.seed(1234)
+i <- sample(1:nrow(df_normalized), nrow(df_normalized)*0.75, replace=FALSE)
+
+train <- df_normalized[i,]
+test <- df_normalized[-i,]
+
+# put the response variable into variables to be put in the cl parameter in the knn
+train.labels <- df[i,"HeartDisease"] # HeartDisease column
+test.labels <- df[-i,"HeartDisease"]
+```
+
+Now, let's finally create our model
+
+```{r}
+knn.pred <- knn(train, test, cl=train.labels, k=9) # keep k odd for classification
+
+results <- knn.pred == test.labels
+knn.acc <- length(which(results == TRUE)) / length(results)
+print(paste("Accuracy: ", knn.acc))
+
+table(results, knn.pred)
+
+```
+
+# Results Analysis
+Looking at the three algorithms I implemented, Logistic Regression definitely performed the best. This is probably because Naives Bayes assumes independent variables, which might not have been accurate for this data. While the KNN algorithm performed slightly better than the Naive Bayes one, it was still less accurate than the Logistic Regression. Some of the predictor variables were heavily correlated with Heart Disease, such as Diabetes, Smoking, and Difficulty Walking. This would lead to LogReg performing better, as it does under collinearity. I would rank the Logistic Regression algorithm the highest in this case, followed by Naive Bayes, and finally the KNN. The reason I ranked KNN third even though it performed better than the Naive Bayes model is because of the difficulty of implementation. I had to make many changes to the data, including completely converting all of my columns to numbers, which involved finding the unique values of columns that were factors and assigning them a number. This made the data less readable. The Naive Bayes model was much easier to implement and was only 1% less accurate than the KNN. 
+
+# What was learned from the data?
+Looking at which predictors were the most useful in the models, I could tell that Smoking, Difficulty Walking, and Diabetes were definitely correlated with Heart Disease. They were the most useful predictors, and proven to be correlated with heart disease. Sleep time was negatively correlated with heart disease, which showed that insomnia is associated with heart diseases. This could be useful in finding other variables that could also be correlated or negatively correlated with heart disease to further educate us on how to live our lives to avoid getting such horrible illnesses.
+
+
